@@ -91,7 +91,7 @@ int mqtt_init( void  )
 
     mqtt_ready = true;
     /* Trigger a period send event */
-    //mico_rtos_register_timed_event( &mqtt_client_send_event, &mqtt_client_worker_thread, user_send_handler, 2000, NULL );
+    mico_rtos_register_timed_event( &mqtt_client_send_event, &mqtt_client_worker_thread, user_send_handler, 60000, NULL );
     
 exit:
     if ( kNoErr != err )  app_log("ERROR, app thread exit err: %d", err);
@@ -365,7 +365,7 @@ OSStatus user_send_handler( void *arg )
     p_send_msg->retained = 0;
     p_send_msg->datalen = strlen( MQTT_CLIENT_PUB_MSG );
     memcpy( p_send_msg->data, MQTT_CLIENT_PUB_MSG, p_send_msg->datalen );
-    strncpy( p_send_msg->topic, MQTT_CLIENT_PUB_TOPIC, MAX_MQTT_TOPIC_SIZE );
+    strncpy( p_send_msg->topic, MQTT_CLIENT_PUB_AVAILABLE_TOPIC, MAX_MQTT_TOPIC_SIZE );
 
     err = mico_rtos_push_to_queue( &mqtt_msg_send_queue, &p_send_msg, 0 );
     require_noerr( err, exit );

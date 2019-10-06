@@ -36,7 +36,7 @@ int application_start( void )
     gpio_init(); 
     user_wifi_init();
     //mqtt_init();  // init on wifi station up callback
-    set_relay_all_on(); //contain mqtt send , init after mqtt init
+    set_relay_all_off(); //contain mqtt send , init after mqtt init
 }
 
 

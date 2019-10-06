@@ -15,6 +15,7 @@
 #define MQTT_CLIENT_KEEPALIVE   30
 #define MQTT_CLIENT_SUB_TOPIC   "device/tc1/set"  // loop msg
 #define MQTT_CLIENT_PUB_TOPIC   "homeassistant/switch/tc1/state"
+#define MQTT_CLIENT_PUB_AVAILABLE_TOPIC   "homeassistant/switch/tc1/available"
 #define MQTT_CMD_TIMEOUT        5000  // 5s
 #define MQTT_YIELD_TMIE         5000  // 5s
 #define MQTT_CLIENT_PUB_MSG     "online"
