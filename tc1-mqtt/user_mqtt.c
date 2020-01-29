@@ -23,6 +23,7 @@
 #include "MQTTClient.h"
 #include "user_mqtt.h"
 #include "user_config.h"
+#include "json_c/json.h"
 
 /******************************************************
  *                      Macros
@@ -45,6 +46,10 @@ static OSStatus mqtt_msg_publish( Client *c, const char* topic, char qos, char r
 
 OSStatus user_send_handler( void *arg );
 OSStatus user_recv_handler( void *arg );
+OSStatus mqtt_discovery_state_send(void);
+
+const char* const sub_topic_buff[] = {"homeassistant/switch/tc1_slot0/set","homeassistant/switch/tc1_slot1/set","homeassistant/switch/tc1_slot2/set","homeassistant/switch/tc1_slot2/set","homeassistant/switch/tc1_slot4/set","homeassistant/switch/tc1_slot5/set"};
+
 
 /******************************************************
  *               Variables Definitions
@@ -89,9 +94,8 @@ int mqtt_init( void  )
     err = mico_rtos_create_worker_thread( &mqtt_client_worker_thread, MICO_APPLICATION_PRIORITY, 0x800, 5 );
     require_noerr_string( err, exit, "ERROR: Unable to start the mqtt client worker thread." );
 
-    mqtt_ready = true;
     /* Trigger a period send event */
-    mico_rtos_register_timed_event( &mqtt_client_send_event, &mqtt_client_worker_thread, user_send_handler, 60000, NULL );
+    mico_rtos_register_timed_event( &mqtt_client_send_event, &mqtt_client_worker_thread, user_send_handler, 10000, NULL );
     
 exit:
     if ( kNoErr != err )  app_log("ERROR, app thread exit err: %d", err);
@@ -209,12 +213,17 @@ MQTT_start:
     require_noerr_string(rc, MQTT_reconnect, "ERROR: MQTT client connect err.");
 
     mqtt_log("MQTT client connect success!");
-
-    /* 4. mqtt client subscribe */
-    rc = MQTTSubscribe( &c, MQTT_CLIENT_SUB_TOPIC, QOS0, messageArrived );
-    require_noerr_string(rc, MQTT_reconnect, "ERROR: MQTT client subscribe err.");
-
-    mqtt_log("MQTT client subscribe success! recv_topic=[%s].", MQTT_CLIENT_SUB_TOPIC);
+    mqtt_ready = true;  // MQTT标志位，连接成功后才允许发送
+    mqtt_discovery_state_send();
+    
+    unsigned char i;
+    for(i=0; i< Relay_NUM;i++)
+    {
+        /* 4. mqtt client subscribe */
+        rc = MQTTSubscribe( &c, sub_topic_buff[i], QOS0, messageArrived );
+        require_noerr_string(rc, MQTT_reconnect, "ERROR: MQTT client subscribe err.");
+        mqtt_log("MQTT client subscribe success! recv_topic=[%s].", sub_topic_buff);
+    }
 
     /* 5. client loop for recv msg && keepalive */
     while ( 1 )
@@ -267,12 +276,14 @@ MQTT_start:
 MQTT_reconnect:
     mqtt_log("Disconnect MQTT client, and reconnect after 5s, reason: mqtt_rc = %d, err = %d", rc, err );
     mqtt_client_release( &c, &n );
+    mqtt_ready = false; 
     mico_rtos_thread_sleep( 5 );
     goto MQTT_start;
 
 exit:
     mqtt_log("EXIT: MQTT client exit with err = %d.", err);
     mqtt_client_release( &c, &n);
+    mqtt_ready = false; 
     mico_rtos_delete_thread( NULL );
 }
 
@@ -323,16 +334,19 @@ OSStatus user_recv_handler( void *arg )
     unsigned char i;
     for ( i = 0; i < SLOT_NUM; i++ )
     {
-        char rec_cmp[10];
-        sprintf(rec_cmp, "S%d_ON", i+1);
-        if(strcmp(p_recv_msg->data,rec_cmp) == 0)
+        char sub_topic_buff[strlen(MQTT_CLIENT_SUB_TOPIC)-1];
+        sprintf(sub_topic_buff,MQTT_CLIENT_SUB_TOPIC,i);
+
+        if(strcmp(p_recv_msg->topic,sub_topic_buff) ==0)
         {
-            set_relay(i,1);
-        }
-        sprintf(rec_cmp, "S%d_OFF", i+1);
-        if(strcmp(p_recv_msg->data,rec_cmp) == 0)
-        {
-            set_relay(i,0);
+            if(strcmp(p_recv_msg->data,"ON") == 0)
+            {
+                set_relay(i,1);
+            }
+            if(strcmp(p_recv_msg->data,"OFF") == 0)
+            {
+                set_relay(i,0);
+            }
         }
     }
     
@@ -345,37 +359,57 @@ exit:
 /* Application collect data and seng them to MQTT send queue */
 OSStatus user_send_handler( void *arg )
 {
+    //mqtt_discovery_state_send();
+}
+
+OSStatus mqtt_discovery_state_send(void)
+{
     OSStatus err = kUnknownErr;
     p_mqtt_send_msg_t p_send_msg = NULL;
 
     app_log("======App prepare to send ![%d]======", MicoGetMemoryInfo()->free_memory);
 
-    /* Send queue is full, pop the oldest */
-    if ( mico_rtos_is_queue_full( &mqtt_msg_send_queue ) == true ){
-        mico_rtos_pop_from_queue( &mqtt_msg_send_queue, &p_send_msg, 0 );
-        free( p_send_msg );
-        p_send_msg = NULL;
+    unsigned char i;
+    for (i=0; i < Relay_NUM ; i++)
+    {
+           /* Send queue is full, pop the oldest */
+        if ( mico_rtos_is_queue_full( &mqtt_msg_send_queue ) == true ){
+            mico_rtos_pop_from_queue( &mqtt_msg_send_queue, &p_send_msg, 0 );
+            free( p_send_msg );
+            p_send_msg = NULL;
+        }
+
+        /* Push the latest data into send queue*/
+        p_send_msg = (p_mqtt_send_msg_t) calloc( 1, sizeof(mqtt_send_msg_t) );
+        require_action( p_send_msg, exit, err = kNoMemoryErr );
+
+        p_send_msg->qos = 0;
+        p_send_msg->retained = 0;
+
+        //发送用于MQTT自动发现数据
+        char config_topic_buff[strlen(MQTT_CLIENT_PUB_DISCOVERY_TOPIC)];
+        char config_data_buff[strlen(MQTT_CLIENT_DISCOVERY_DATA)-3]; //因为包含%d所以长度超长
+        sprintf(config_data_buff,MQTT_CLIENT_DISCOVERY_DATA,i,i,i);
+        sprintf(config_topic_buff,MQTT_CLIENT_PUB_DISCOVERY_TOPIC,i);
+        p_send_msg->datalen = strlen( MQTT_CLIENT_DISCOVERY_DATA )-3;
+        memcpy( p_send_msg->data, config_data_buff, p_send_msg->datalen );
+        strncpy( p_send_msg->topic, config_topic_buff, MAX_MQTT_TOPIC_SIZE );
+        err = mico_rtos_push_to_queue( &mqtt_msg_send_queue, &p_send_msg, 0 );
+        require_noerr( err, exit );
     }
 
-    /* Push the latest data into send queue*/
-    p_send_msg = (p_mqtt_send_msg_t) calloc( 1, sizeof(mqtt_send_msg_t) );
-    require_action( p_send_msg, exit, err = kNoMemoryErr );
+    for (i=0; i < Relay_NUM ; i++)
+    {
+        mqtt_send_slot_state( i, slot_state[i]);
+        
+    }
 
-    p_send_msg->qos = 0;
-    p_send_msg->retained = 0;
-    p_send_msg->datalen = strlen( MQTT_CLIENT_PUB_MSG );
-    memcpy( p_send_msg->data, MQTT_CLIENT_PUB_MSG, p_send_msg->datalen );
-    strncpy( p_send_msg->topic, MQTT_CLIENT_PUB_AVAILABLE_TOPIC, MAX_MQTT_TOPIC_SIZE );
-
-    err = mico_rtos_push_to_queue( &mqtt_msg_send_queue, &p_send_msg, 0 );
-    require_noerr( err, exit );
 
     app_log("Push user msg into send queue success!");
 
 exit:
     if( err != kNoErr && p_send_msg ) free( p_send_msg );
     return err;
-
 }
 
 // Send slot state, slot_id = 0-5
@@ -385,16 +419,17 @@ OSStatus mqtt_send_slot_state( unsigned char slot_id, unsigned char slot_state)
     p_mqtt_send_msg_t p_send_msg = NULL;
 
     char send_buff[10];
+    char state_topic_buff[strlen(MQTT_CLIENT_PUB_TOPIC)];
+
     if(slot_state == 0)
     {
-        sprintf(send_buff, "S%d_OFF", slot_id+1);
+        sprintf(send_buff, "OFF");
     }
     else
     {
-        sprintf(send_buff, "S%d_ON", slot_id+1);
+        sprintf(send_buff, "ON");
     }
     
-
     app_log("======Slot state prepare to send ![%d]======", MicoGetMemoryInfo()->free_memory);
 
     /* Send queue is full, pop the oldest */
@@ -412,8 +447,8 @@ OSStatus mqtt_send_slot_state( unsigned char slot_id, unsigned char slot_state)
     p_send_msg->retained = 0;
     p_send_msg->datalen = strlen( send_buff );
     memcpy( p_send_msg->data, send_buff, p_send_msg->datalen );
-    strncpy( p_send_msg->topic, MQTT_CLIENT_PUB_TOPIC, MAX_MQTT_TOPIC_SIZE );
-
+    sprintf(state_topic_buff, MQTT_CLIENT_PUB_TOPIC, slot_id);
+    strncpy( p_send_msg->topic, state_topic_buff, MAX_MQTT_TOPIC_SIZE );
     err = mico_rtos_push_to_queue( &mqtt_msg_send_queue, &p_send_msg, 0 );
     require_noerr( err, exit );
 

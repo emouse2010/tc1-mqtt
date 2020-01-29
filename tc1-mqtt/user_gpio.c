@@ -14,7 +14,7 @@ uint16_t key_time = 0;
 
 bool relay_flag = false;
 
-extern bool mqtt_ready;
+
 extern unsigned char slot_state[SLOT_NUM]; // define in main
 
 bool get_relay_state();

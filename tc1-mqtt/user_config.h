@@ -2,7 +2,7 @@
 #define TC1_MQTT_USER_CONFIG_H_
 
 #define CONFIG_SSID "XinRui"                 
-#define CONFIG_USER_KEY "emouse"      
+#define CONFIG_USER_KEY "emouse2010"      
 
 
 /******************************************************
@@ -13,15 +13,18 @@
 #define MQTT_CLIENT_USERNAME    "hass"
 #define MQTT_CLIENT_PASSWORD    "emousemqtt"
 #define MQTT_CLIENT_KEEPALIVE   30
-#define MQTT_CLIENT_SUB_TOPIC   "device/tc1/set"  // loop msg
-#define MQTT_CLIENT_PUB_TOPIC   "homeassistant/switch/tc1/state"
-#define MQTT_CLIENT_PUB_AVAILABLE_TOPIC   "homeassistant/switch/tc1/available"
+
 #define MQTT_CMD_TIMEOUT        5000  // 5s
 #define MQTT_YIELD_TMIE         5000  // 5s
 #define MQTT_CLIENT_PUB_MSG     "online"
 //#define MQTT_CLIENT_SSL_ENABLE  // ssl
+#define MQTT_CLIENT_PUB_DISCOVERY_TOPIC   "homeassistant/switch/tc1_slot%d/config" // 实际未使用
+#define MQTT_CLIENT_SUB_TOPIC             "homeassistant/switch/tc1_slot%d/set"  
+#define MQTT_CLIENT_PUB_TOPIC             "homeassistant/switch/tc1_slot%d/state"
+#define MQTT_CLIENT_PUB_AVAILABLE_TOPIC   "homeassistant/switch/tc1_slot%d/available"
 
-
+#define MQTT_CLIENT_DISCOVERY_DATA        "{\"name\": \"tc1_slot%d\", \"command_topic\": \"homeassistant/switch/tc1_slot%d/set\", \"state_topic\": \"homeassistant/switch/tc1_slot%d/state\"}"
+ 
 #ifdef MQTT_CLIENT_SSL_ENABLE
 
 #define MQTT_SERVER             "test.mosquitto.org"
@@ -48,7 +51,7 @@ REyPOFdGdhBY2P1FNRy0MDr6xr+D2ZOwxs63dG1nnAnWZg7qwoLgpZ4fESPD3PkA\r\n\
 
 #else  // ! MQTT_CLIENT_SSL_ENABLE
 
-#define MQTT_SERVER             "192.168.1.246"
+#define MQTT_SERVER             "192.168.1.101"
 #define MQTT_SERVER_PORT        1883
 
 #endif // MQTT_CLIENT_SSL_ENABLE
@@ -70,5 +73,7 @@ REyPOFdGdhBY2P1FNRy0MDr6xr+D2ZOwxs63dG1nnAnWZg7qwoLgpZ4fESPD3PkA\r\n\
 #define Relay_4     MICO_GPIO_9
 #define Relay_5     MICO_GPIO_18
 #define Relay_NUM   SLOT_NUM
+extern unsigned char slot_state[SLOT_NUM];
+extern bool mqtt_ready;
 
 #endif /* TC1_MQTT_USER_CONFIG_H_ */
